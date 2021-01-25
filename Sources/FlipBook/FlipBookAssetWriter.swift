@@ -171,6 +171,11 @@ public final class FlipBookAssetWriter: NSObject {
         frames.append(image)
     }
     
+    /// Clears frame buffer
+    public func clearFrames() {
+        frames.removeAll()
+    }
+    
     #if os(iOS)
     /// Appends a sample buffer to the specified input
     /// - Parameters:

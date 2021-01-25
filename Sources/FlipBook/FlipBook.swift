@@ -232,33 +232,46 @@ public final class FlipBook: NSObject {
             displayLink.invalidate()
             self.displayLink = nil
             #endif
-
-            writer.endDate = Date()
-            sourceView = nil
-            
-            writer.createVideoFromCapturedFrames(assetType: assetType,
-                                                 compositionAnimation: compositionAnimation,
-            progress: { [weak self] (prog) in
-                guard let self = self else {
-                    return
-                }
-                DispatchQueue.main.async {
-                    self.onProgress?(prog)
-                }
-            }, completion: { [weak self] result in
-                guard let self = self else {
-                    return
-                }
-                DispatchQueue.main.async {
-                    self.writer.startDate = nil
-                    self.writer.endDate = nil
-                    self.onProgress = nil
-                    self.compositionAnimation = nil
-                    self.onCompletion?(result)
-                    self.onCompletion = nil
-                }
-            })
         }
+    }
+    
+    public func clear() {
+        writer.clearFrames()
+        self.onProgress?(0.0)
+        self.writer.startDate = nil
+        self.writer.endDate = nil
+        self.onProgress = nil
+        self.compositionAnimation = nil
+        self.onCompletion?(.failure(FlipBookError.recordingNotAvailible))
+        self.onCompletion = nil
+    }
+    
+    public func write() {
+        writer.endDate = Date()
+        sourceView = nil
+        
+        writer.createVideoFromCapturedFrames(assetType: assetType,
+                                             compositionAnimation: compositionAnimation,
+        progress: { [weak self] (prog) in
+            guard let self = self else {
+                return
+            }
+            DispatchQueue.main.async {
+                self.onProgress?(prog)
+            }
+        }, completion: { [weak self] result in
+            guard let self = self else {
+                return
+            }
+            DispatchQueue.main.async {
+                self.writer.startDate = nil
+                self.writer.endDate = nil
+                self.onProgress = nil
+                self.compositionAnimation = nil
+                self.onCompletion?(result)
+                self.onCompletion = nil
+            }
+        })
     }
     
     /// Makes an asset of type `assetType` from a an array of images with a framerate equal to `preferredFramesPerSecond`. The asset will have a size equal to the first image's size.
@@ -319,10 +332,12 @@ public final class FlipBook: NSObject {
     #else
 
     @objc internal func tick(_ displayLink: CADisplayLink) {
-        guard let viewImage = sourceView?.fb_makeViewSnapshot() else {
-            return
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            guard let viewImage = self?.sourceView?.fb_makeViewSnapshot() else {
+                return
+            }
+            self?.writer.writeFrame(viewImage)
         }
-        writer.writeFrame(viewImage)
     }
     #endif
 }
