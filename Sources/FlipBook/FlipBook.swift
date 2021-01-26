@@ -332,11 +332,13 @@ public final class FlipBook: NSObject {
     #else
 
     @objc internal func tick(_ displayLink: CADisplayLink) {
-        DispatchQueue.global(qos: .background).async { [weak self] in
-            guard let viewImage = self?.sourceView?.fb_makeViewSnapshot() else {
-                return
+        if let frame = self.sourceView?.frame {
+            DispatchQueue.global(qos: .background).sync { [weak self] in
+                guard let viewImage = self?.sourceView?.fb_makeViewSnapshot(frame: frame) else {
+                    return
+                }
+                self?.writer.writeFrame(viewImage)
             }
-            self?.writer.writeFrame(viewImage)
         }
     }
     #endif

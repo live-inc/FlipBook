@@ -60,10 +60,10 @@ extension View {
         Screen.main.scale
     }
     
-    func fb_makeViewSnapshot() -> Image? {
+    func fb_makeViewSnapshot(frame: CGRect) -> Image? {
         UIGraphicsBeginImageContextWithOptions(frame.size, true, 0)
         //guard let context = UIGraphicsGetCurrentContext() else { return nil }
-        drawHierarchy(in: self.frame, afterScreenUpdates: false)
+        drawHierarchy(in: frame, afterScreenUpdates: false)
         let rasterizedView = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
         
