@@ -335,6 +335,8 @@ public final class FlipBookAssetWriter: NSObject {
     ///   - completion: closure that is called when the video has been created with the `URL` for the created video. `completion` will be called from a background thread
     public func createVideoFromCapturedFrames(assetType: AssetType = .video,
                                               compositionAnimation: ((CALayer) -> Void)? = nil,
+                                              mergeURL: (FlipBook.MergeType, URL)? = nil,
+                                              mergeComposition: ((CALayer) -> Void)? = nil,
                                               progress: ((CGFloat) -> Void)?,
                                               completion: @escaping (Result<Asset, Error>) -> Void) {
         guard frames.isEmpty == false else {
@@ -357,7 +359,7 @@ public final class FlipBookAssetWriter: NSObject {
                     // If we have to do a composition do that
                     if let compositionAnimation = compositionAnimation {
                         self?.coreAnimationVideoEditor.preferredFramesPerSecond = self?.preferredFramesPerSecond ?? 60
-                        self?.coreAnimationVideoEditor.makeVideo(fromVideoAt: url, animation: compositionAnimation, progress: { (prog) in
+                        self?.coreAnimationVideoEditor.makeVideo(fromVideoAt: url, animation: compositionAnimation, mergeURL: mergeURL, progress: { (prog) in
                             progress?(0.5 + prog * 0.5)
                         }, completion: { result in
                             // Handle the composition result

@@ -28,6 +28,12 @@ public final class FlipBook: NSObject {
         /// Recording is not availible using `ReplayKit` with `assetType == .gif`
         case recordingNotAvailible
     }
+    
+    /// Enum that represents type of asset to be merged
+    public enum MergeType {
+        case video
+        case photo
+    }
 
     // MARK: - Public Properties
     
@@ -68,6 +74,12 @@ public final class FlipBook: NSObject {
     /// Closure to be called when compositing video with `CAAnimation`s
     internal var compositionAnimation: ((CALayer) -> Void)?
     
+    /// URL to be merged after recording
+    internal var mergeURL: (MergeType, URL)?
+    
+    /// Closure to be called when compositing merged video with `CAAnimation`s
+    internal var mergeComposition: ((CALayer) -> Void)?
+    
     /// Closure to be called when the video asset stops writing
     internal var onCompletion: ((Result<FlipBookAssetWriter.Asset, Error>) -> Void)?
     
@@ -97,6 +109,8 @@ public final class FlipBook: NSObject {
     ///   - completion: closure that is called when the video has been created with the `URL` for the created video. `completion` will be called from the main thread
     public func startRecording(_ view: View,
                                compositionAnimation: ((CALayer) -> Void)? = nil,
+                               mergeURL: (MergeType, URL)? = nil,
+                               mergeComposition: ((CALayer) -> Void)? = nil,
                                progress: ((CGFloat) -> Void)? = nil,
                                completion: @escaping (Result<FlipBookAssetWriter.Asset, Error>) -> Void) {
         if shouldUseReplayKit {
@@ -113,6 +127,8 @@ public final class FlipBook: NSObject {
             writer.gifImageScale = gifImageScale
             writer.preferredFramesPerSecond = preferredFramesPerSecond
             self.compositionAnimation = compositionAnimation
+            self.mergeURL = mergeURL
+            self.mergeComposition = mergeComposition
             if #available(iOS 11.0, *) {
                 screenRecorder.startCapture(handler: { [weak self] (buffer, type, error) in
                     if let error = error {
@@ -146,6 +162,8 @@ public final class FlipBook: NSObject {
             onProgress = progress
             onCompletion = completion
             self.compositionAnimation = compositionAnimation
+            self.mergeURL = mergeURL
+            self.mergeComposition = mergeComposition
             writer.size = CGSize(width: view.bounds.size.width * view.scale, height: view.bounds.size.height * view.scale)
             writer.startDate = Date()
             writer.gifImageScale = gifImageScale
@@ -242,6 +260,8 @@ public final class FlipBook: NSObject {
         self.writer.endDate = nil
         self.onProgress = nil
         self.compositionAnimation = nil
+        self.mergeURL = nil
+        self.mergeComposition = nil
         self.onCompletion?(.failure(FlipBookError.recordingNotAvailible))
         self.onCompletion = nil
     }
@@ -252,6 +272,8 @@ public final class FlipBook: NSObject {
         
         writer.createVideoFromCapturedFrames(assetType: assetType,
                                              compositionAnimation: compositionAnimation,
+                                             mergeURL: mergeURL,
+                                             mergeComposition: mergeComposition,
         progress: { [weak self] (prog) in
             guard let self = self else {
                 return

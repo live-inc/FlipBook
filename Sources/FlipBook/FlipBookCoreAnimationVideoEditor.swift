@@ -58,24 +58,25 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
     ///   - completion: Closure that is called when the video composit has been created with the `URL` for the created video. `completion` will be called from a main thread
     public func makeVideo(fromVideoAt videoURL: URL,
                           animation: @escaping (CALayer) -> Void,
+                          mergeURL: (FlipBook.MergeType, URL)? = nil,
                           progress: ((CGFloat) -> Void)?,
                           completion: @escaping (Result<URL, Error>) -> Void) {
         
-        let asset = AVURLAsset(url: videoURL)
+        let firstAsset = AVURLAsset(url: videoURL)
         let composition = AVMutableComposition()
         
-        guard let compositionTrack = composition.addMutableTrack(withMediaType: .video,
+        guard let firstTrack = composition.addMutableTrack(withMediaType: .video,
                                                                  preferredTrackID: kCMPersistentTrackID_Invalid),
-            let assetTrack = asset.tracks(withMediaType: .video).first else {
+            let firstAssetTrack = firstAsset.tracks(withMediaType: .video).first else {
                 DispatchQueue.main.async { completion(.failure(FlipBookCoreAnimationVideoEditorError.couldNotCreateComposition))}
                 return
         }
         
         do {
-            let timeRange = CMTimeRange(start: .zero, duration: asset.duration)
-            try compositionTrack.insertTimeRange(timeRange, of: assetTrack, at: .zero)
+            let timeRange = CMTimeRange(start: .zero, duration: firstAsset.duration)
+            try firstTrack.insertTimeRange(timeRange, of: firstAssetTrack, at: .zero)
             
-            if  let audioAssetTrack = asset.tracks(withMediaType: .audio).first,
+            if  let audioAssetTrack = firstAsset.tracks(withMediaType: .audio).first,
                 let compositionAudioTrack = composition.addMutableTrack(withMediaType: .audio,
                                                                         preferredTrackID: kCMPersistentTrackID_Invalid) {
                 try compositionAudioTrack.insertTimeRange(timeRange, of: audioAssetTrack, at: .zero)
@@ -86,14 +87,14 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
             return
         }
         
-        compositionTrack.preferredTransform = assetTrack.preferredTransform
-        let videoInfo = orientation(from: assetTrack.preferredTransform)
+        firstTrack.preferredTransform = firstAssetTrack.preferredTransform
+        let videoInfo = orientation(from: firstAssetTrack.preferredTransform)
         let videoSize: CGSize
 
         if videoInfo.isPortrait {
-            videoSize = CGSize(width: assetTrack.naturalSize.height, height: assetTrack.naturalSize.width)
+            videoSize = CGSize(width: firstAssetTrack.naturalSize.height, height: firstAssetTrack.naturalSize.width)
         } else {
-            videoSize = assetTrack.naturalSize
+            videoSize = firstAssetTrack.naturalSize
         }
           
         let videoLayer = CALayer()
@@ -111,17 +112,65 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = videoSize
         videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(preferredFramesPerSecond))
-        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer,
-                                                                             in: outputLayer)
-          
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero,
-                                            duration: composition.duration)
+//        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer,
+//                                                                             in: outputLayer)
         
-        videoComposition.instructions = [instruction]
-        let layerInstruction = compositionLayerInstruction(for: compositionTrack,
-                                                           assetTrack: assetTrack)
-        instruction.layerInstructions = [layerInstruction]
+        if let merge = mergeURL, merge.0 == .video {
+            let secondAsset = AVURLAsset(url: merge.1)
+            guard let secondTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid), let secondAssetTrack = secondAsset.tracks(withMediaType: .video).first else {
+                DispatchQueue.main.async { completion(.failure(FlipBookCoreAnimationVideoEditorError.couldNotCreateComposition))}
+                return
+            }
+            
+            do {
+                let timeRange = CMTimeRange(start: .zero, duration: secondAsset.duration)
+                try secondTrack.insertTimeRange(timeRange, of: secondAssetTrack, at: firstAsset.duration)
+                
+                if let audioAssetTrack = secondAsset.tracks(withMediaType: .audio).first,
+                    let compositionAudioTrack = composition.addMutableTrack(withMediaType: .audio,
+                                                                            preferredTrackID: kCMPersistentTrackID_Invalid) {
+                    try compositionAudioTrack.insertTimeRange(timeRange, of: audioAssetTrack, at: firstAsset.duration)
+                }
+                
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+                return
+            }
+            
+            secondTrack.preferredTransform = secondAssetTrack.preferredTransform
+            
+            let videoInfo = orientation(from: secondAssetTrack.preferredTransform)
+            let videoSize: CGSize
+
+            if videoInfo.isPortrait {
+                videoSize = CGSize(width: secondAssetTrack.naturalSize.height, height: secondAssetTrack.naturalSize.width)
+            } else {
+                videoSize = secondAssetTrack.naturalSize
+            }
+            
+            let instruction = AVMutableVideoCompositionInstruction()
+            instruction.timeRange = CMTimeRange(start: .zero,
+                                                duration: CMTimeAdd(firstAsset.duration, secondAsset.duration))
+            
+            let firstInstruction = compositionLayerInstruction(for: firstTrack,
+                                                               assetTrack: firstAssetTrack)
+            firstInstruction.setOpacity(0.0, at: firstAsset.duration)
+            
+            let secondInstruction = compositionLayerInstruction(for: secondTrack, assetTrack: secondAssetTrack)
+            instruction.layerInstructions = [firstInstruction, secondInstruction]
+            
+            videoComposition.renderSize = videoSize
+            videoComposition.instructions = [instruction]
+        } else {
+            let instruction = AVMutableVideoCompositionInstruction()
+            instruction.timeRange = CMTimeRange(start: .zero,
+                                                duration: firstAsset.duration)
+            
+            videoComposition.instructions = [instruction]
+            let layerInstruction = compositionLayerInstruction(for: firstTrack,
+                                                               assetTrack: firstAssetTrack)
+            instruction.layerInstructions = [layerInstruction]
+        }
           
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             DispatchQueue.main.async { completion(.failure(FlipBookCoreAnimationVideoEditorError.couldNotCreateExportSession)) }
@@ -201,5 +250,65 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
         instruction.setTransform(transform, at: .zero)
 
         return instruction
+    }
+    
+    fileprivate func videoCompositionInstructionForTrack(track: AVCompositionTrack, asset: AVAsset, standardSize:CGSize, atTime: CMTime) -> AVMutableVideoCompositionLayerInstruction {
+        let instruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+        let assetTrack = asset.tracks(withMediaType: AVMediaType.video)[0]
+        
+        let transform = assetTrack.preferredTransform
+        let assetInfo = orientationFromTransform(transform: transform)
+        
+        var aspectFillRatio:CGFloat = 1
+        if assetTrack.naturalSize.height < assetTrack.naturalSize.width {
+            aspectFillRatio = standardSize.height / assetTrack.naturalSize.height
+        }
+        else {
+            aspectFillRatio = standardSize.width / assetTrack.naturalSize.width
+        }
+        
+        if assetInfo.isPortrait {
+            let scaleFactor = CGAffineTransform(scaleX: aspectFillRatio, y: aspectFillRatio)
+            
+            let posX = standardSize.width/2 - (assetTrack.naturalSize.height * aspectFillRatio)/2
+            let posY = standardSize.height/2 - (assetTrack.naturalSize.width * aspectFillRatio)/2
+            let moveFactor = CGAffineTransform(translationX: posX, y: posY)
+            
+            instruction.setTransform(assetTrack.preferredTransform.concatenating(scaleFactor).concatenating(moveFactor), at: atTime)
+            
+        } else {
+            let scaleFactor = CGAffineTransform(scaleX: aspectFillRatio, y: aspectFillRatio)
+            
+            let posX = standardSize.width/2 - (assetTrack.naturalSize.width * aspectFillRatio)/2
+            let posY = standardSize.height/2 - (assetTrack.naturalSize.height * aspectFillRatio)/2
+            let moveFactor = CGAffineTransform(translationX: posX, y: posY)
+            
+            var concat = assetTrack.preferredTransform.concatenating(scaleFactor).concatenating(moveFactor)
+            
+            if assetInfo.orientation == .down {
+                let fixUpsideDown = CGAffineTransform(rotationAngle: CGFloat(Double.pi))
+                concat = fixUpsideDown.concatenating(scaleFactor).concatenating(moveFactor)
+            }
+            
+            instruction.setTransform(concat, at: atTime)
+        }
+        return instruction
+    }
+    
+    fileprivate func orientationFromTransform(transform: CGAffineTransform) -> (orientation: UIImage.Orientation, isPortrait: Bool) {
+        var assetOrientation = UIImage.Orientation.up
+        var isPortrait = false
+        if transform.a == 0 && transform.b == 1.0 && transform.c == -1.0 && transform.d == 0 {
+            assetOrientation = .right
+            isPortrait = true
+        } else if transform.a == 0 && transform.b == -1.0 && transform.c == 1.0 && transform.d == 0 {
+            assetOrientation = .left
+            isPortrait = true
+        } else if transform.a == 1.0 && transform.b == 0 && transform.c == 0 && transform.d == 1.0 {
+            assetOrientation = .up
+        } else if transform.a == -1.0 && transform.b == 0 && transform.c == 0 && transform.d == -1.0 {
+            assetOrientation = .down
+        }
+        return (assetOrientation, isPortrait)
     }
 }
