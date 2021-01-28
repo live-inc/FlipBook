@@ -88,6 +88,10 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
         }
         
         firstTrack.preferredTransform = firstAssetTrack.preferredTransform
+        if mergeURL != nil {
+            firstTrack.scaleTimeRange(CMTimeRange(start: .zero, duration: firstAsset.duration), toDuration: CMTimeMakeWithSeconds(2.5, preferredTimescale: firstAsset.duration.timescale))
+        }
+        
         let videoInfo = orientation(from: firstAssetTrack.preferredTransform)
         let videoSize: CGSize
 
@@ -112,10 +116,9 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = videoSize
         videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(preferredFramesPerSecond))
-//        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer,
-//                                                                             in: outputLayer)
+        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: outputLayer)
         
-        if let merge = mergeURL, merge.0 == .video {
+        if let merge = mergeURL {
             let secondAsset = AVURLAsset(url: merge.1)
             guard let secondTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid), let secondAssetTrack = secondAsset.tracks(withMediaType: .video).first else {
                 DispatchQueue.main.async { completion(.failure(FlipBookCoreAnimationVideoEditorError.couldNotCreateComposition))}
@@ -124,12 +127,12 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
             
             do {
                 let timeRange = CMTimeRange(start: .zero, duration: secondAsset.duration)
-                try secondTrack.insertTimeRange(timeRange, of: secondAssetTrack, at: firstAsset.duration)
+                try secondTrack.insertTimeRange(timeRange, of: secondAssetTrack, at: firstTrack.timeRange.duration)
                 
                 if let audioAssetTrack = secondAsset.tracks(withMediaType: .audio).first,
                     let compositionAudioTrack = composition.addMutableTrack(withMediaType: .audio,
                                                                             preferredTrackID: kCMPersistentTrackID_Invalid) {
-                    try compositionAudioTrack.insertTimeRange(timeRange, of: audioAssetTrack, at: firstAsset.duration)
+                    try compositionAudioTrack.insertTimeRange(timeRange, of: audioAssetTrack, at: firstTrack.timeRange.duration)
                 }
                 
             } catch {
@@ -150,25 +153,31 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
         
             let instruction = AVMutableVideoCompositionInstruction()
             instruction.timeRange = CMTimeRange(start: .zero,
-                                                duration: CMTimeAdd(firstAsset.duration, secondAsset.duration))
+                                                duration: CMTimeAdd(firstTrack.timeRange.duration, secondAsset.duration))
             
             let firstInstruction = compositionLayerInstruction(for: firstTrack,
                                                                assetTrack: firstAssetTrack)
-            firstInstruction.setOpacity(0.0, at: firstAsset.duration)
+            firstInstruction.setOpacity(0.0, at: firstTrack.timeRange.duration)
             
             let secondInstruction = compositionLayerInstruction(for: secondTrack, assetTrack: secondAssetTrack)
             if let transform = self.transformForRotation(orientation: videoInfo.interfaceOrientation, videoSize: videoSize) {
-                secondInstruction.setTransform(transform, at: .zero)
+                var scale: CGFloat = 0.0
+                if abs(videoSize.height/videoSize.width) > 1.77 {
+                    scale = videoComposition.renderSize.height/videoSize.height
+                } else {
+                    scale = videoComposition.renderSize.width/videoSize.width
+                }
+                
+                let newTransform = transform.concatenating(CGAffineTransform(scaleX: scale, y: scale)).concatenating(CGAffineTransform(translationX: (videoComposition.renderSize.width - videoSize.width * scale)/2, y: (videoComposition.renderSize.height - videoSize.height * scale)/2))
+                secondInstruction.setTransform(newTransform, at: .zero)
             }
 
             instruction.layerInstructions = [firstInstruction, secondInstruction]
-            
-            videoComposition.renderSize = videoSize
             videoComposition.instructions = [instruction]
         } else {
             let instruction = AVMutableVideoCompositionInstruction()
             instruction.timeRange = CMTimeRange(start: .zero,
-                                                duration: firstAsset.duration)
+                                                duration: firstTrack.timeRange.duration)
             
             videoComposition.instructions = [instruction]
             let layerInstruction = compositionLayerInstruction(for: firstTrack,

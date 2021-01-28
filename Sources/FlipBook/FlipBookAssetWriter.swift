@@ -336,7 +336,6 @@ public final class FlipBookAssetWriter: NSObject {
     public func createVideoFromCapturedFrames(assetType: AssetType = .video,
                                               compositionAnimation: ((CALayer) -> Void)? = nil,
                                               mergeURL: (FlipBook.MergeType, URL)? = nil,
-                                              mergeComposition: ((CALayer) -> Void)? = nil,
                                               progress: ((CGFloat) -> Void)?,
                                               completion: @escaping (Result<Asset, Error>) -> Void) {
         guard frames.isEmpty == false else {
