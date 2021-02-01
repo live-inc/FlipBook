@@ -27,8 +27,8 @@ public final class FlipBookAssetWriter: NSObject {
     /// The assets that can be writen
     public enum Asset {
         
-        /// video with its associated `URL`
-        case video(URL)
+        /// video with its associated `URL` and a preview image
+        case video(URL, UIImage?)
         
         /// Live Photo with its associated `PHLivePhoto`
         case livePhoto(PHLivePhoto, LivePhotoResources)
@@ -39,7 +39,7 @@ public final class FlipBookAssetWriter: NSObject {
         /// The url of a video or animated gif. If the asset is a live photo `assetURL` is `nil`
         public var assetURL: URL? {
             switch self {
-            case .video(let url): return url
+            case .video(let url, _): return url
             case .livePhoto: return nil
             case .gif(let url): return url
             }
@@ -200,6 +200,9 @@ public final class FlipBookAssetWriter: NSObject {
                 completion(.failure(FlipBookAssetWriterError.unknownError))
                 return
             }
+            
+            let firstFrame: UIImage? = self.frames.first ?? nil
+
             switch result {
             case .success(let url):
                 if let animation = compositionAnimation {
@@ -213,7 +216,7 @@ public final class FlipBookAssetWriter: NSObject {
                         case .success(let url):
                             switch assetType {
                             case .video:
-                                completion(.success(.video(url)))
+                                completion(.success(.video(url, firstFrame)))
                             case .livePhoto(let img):
                                 // Make image URL for still aspect of Live Photo
                                 let imageURL: URL?
@@ -261,7 +264,7 @@ public final class FlipBookAssetWriter: NSObject {
                 } else {
                     switch assetType {
                     case .video:
-                        completion(.success(.video(url)))
+                        completion(.success(.video(url, firstFrame)))
                     case .livePhoto(let img):
                         let imageURL: URL?
                         // Make image URL for still aspect of Live Photo
@@ -342,6 +345,9 @@ public final class FlipBookAssetWriter: NSObject {
             completion(.failure(FlipBookAssetWriterError.noFrames))
             return
         }
+        
+        let firstFrame: UIImage? = self.frames.first ?? nil
+        
         switch assetType {
 
         // Handle Video
@@ -360,11 +366,11 @@ public final class FlipBookAssetWriter: NSObject {
                         self?.coreAnimationVideoEditor.preferredFramesPerSecond = self?.preferredFramesPerSecond ?? 60
                         self?.coreAnimationVideoEditor.makeVideo(fromVideoAt: url, animation: compositionAnimation, mergeURL: mergeURL, progress: { (prog) in
                             progress?(0.5 + prog * 0.5)
-                        }, completion: { result in
+                        }, completion: { [weak self] result in
                             // Handle the composition result
                             switch result {
                             case .success(let url):
-                                completion(.success(.video(url)))
+                                completion(.success(.video(url, firstFrame)))
                             case .failure(let error):
                                 completion(.failure(error))
                             }
@@ -372,7 +378,7 @@ public final class FlipBookAssetWriter: NSObject {
                     } else {
 
                         // No composition return the video
-                        completion(.success(.video(url)))
+                        completion(.success(.video(url, firstFrame)))
                     }
                 case .failure(let error):
                     completion(.failure(error))
