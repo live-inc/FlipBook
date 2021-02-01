@@ -36,7 +36,7 @@ extension Image {
     }
     
     var jpegRep: Data? {
-        jpegData(compressionQuality: 1.0)
+        jpegData(compressionQuality: 0.8)
     }
     
     static func makeImage(cgImage: CGImage) -> Image {
