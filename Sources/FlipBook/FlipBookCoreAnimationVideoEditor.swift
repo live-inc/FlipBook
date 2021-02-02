@@ -96,9 +96,9 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
         let videoSize: CGSize
 
         if videoInfo.isPortrait {
-            videoSize = CGSize(width: firstAssetTrack.naturalSize.height, height: firstAssetTrack.naturalSize.width)
+            videoSize = CGSize(width: 1080, height: 1920)
         } else {
-            videoSize = firstAssetTrack.naturalSize
+            videoSize = CGSize(width: 1080, height: 1920)
         }
           
         let videoLayer = CALayer()
@@ -190,7 +190,7 @@ public final class FlipBookCoreAnimationVideoEditor: NSObject {
             return
         }
           
-        guard let exportURL = FlipBookAssetWriter().makeFileOutputURL(fileName: "FlipBookVideoComposition.mov") else {
+        guard let exportURL = FlipBookAssetWriter().makeFileOutputURL(fileName: "spott.mov") else {
             DispatchQueue.main.async { completion(.failure(FlipBookCoreAnimationVideoEditorError.couldNotCreateOutputURL)) }
             return
         }
