@@ -71,6 +71,8 @@ public final class FlipBook: NSObject {
     /// Closure to be called when the asset writing has progressed
     internal var onProgress: ((CGFloat) -> Void)?
     
+    internal var onProgress2: ((CGFloat) -> Void)?
+    
     /// Closure to be called when compositing video with `CAAnimation`s
     internal var compositionAnimation: ((CALayer) -> Void)?
     
@@ -79,6 +81,8 @@ public final class FlipBook: NSObject {
     
     /// Closure to be called when the video asset stops writing
     internal var onCompletion: ((Result<FlipBookAssetWriter.Asset, Error>) -> Void)?
+    
+    internal var onCompletion2: ((Result<FlipBookAssetWriter.Asset, Error>) -> Void)?
     
     /// View that is currently being recorded
     internal var sourceView: View?
@@ -154,8 +158,14 @@ public final class FlipBook: NSObject {
             }
             #endif
             sourceView = view
-            onProgress = progress
-            onCompletion = completion
+            if !writing {
+                onProgress = progress
+                onCompletion = completion
+            } else {
+                onProgress2 = progress
+                onCompletion2 = completion
+            }
+            
             self.compositionAnimation = compositionAnimation
             self.mergeURL = mergeURL
             writer.size = CGSize(width: view.bounds.size.width * view.scale, height: view.bounds.size.height * view.scale)
@@ -243,25 +253,39 @@ public final class FlipBook: NSObject {
             }
             displayLink.invalidate()
             self.displayLink = nil
+            writer.endDate = Date()
+            sourceView = nil
             #endif
         }
     }
     
     public func clear() {
-        writer.clearFrames()
-        self.onProgress?(0.0)
-        self.writer.startDate = nil
-        self.writer.endDate = nil
-        self.onProgress = nil
+        
+        if !writing {
+            writer.clearFrames()
+            self.writer.startDate = nil
+            self.writer.endDate = nil
+            self.onProgress?(0.0)
+            self.onProgress = nil
+            self.onCompletion?(.failure(FlipBookError.recordingNotAvailible))
+            self.onCompletion = nil
+        } else {
+            writer.clearStoredFrames()
+            self.onProgress2?(0.0)
+            self.onProgress2 = nil
+            self.onCompletion2?(.failure(FlipBookError.recordingNotAvailible))
+            self.onCompletion2 = nil
+        }
+    
         self.compositionAnimation = nil
         self.mergeURL = nil
-        self.onCompletion?(.failure(FlipBookError.recordingNotAvailible))
-        self.onCompletion = nil
     }
     
+    
+    public var writing = false
+    
     public func write() {
-        writer.endDate = Date()
-        sourceView = nil
+        writing = true
         
         writer.createVideoFromCapturedFrames(assetType: assetType,
                                              compositionAnimation: compositionAnimation,
@@ -278,12 +302,13 @@ public final class FlipBook: NSObject {
                 return
             }
             DispatchQueue.main.async {
-                self.writer.startDate = nil
-                self.writer.endDate = nil
-                self.onProgress = nil
-                self.compositionAnimation = nil
+                self.onProgress = self.onProgress2
                 self.onCompletion?(result)
-                self.onCompletion = nil
+                self.onCompletion = self.onCompletion2
+                self.writer.transferStoredFrames()
+                self.writing = false
+                self.onProgress2 = nil
+                self.onCompletion2 = nil
             }
         })
     }
@@ -351,7 +376,11 @@ public final class FlipBook: NSObject {
                 guard let viewImage = self?.sourceView?.fb_makeViewSnapshot(frame: frame) else {
                     return
                 }
-                self?.writer.writeFrame(viewImage)
+                if self?.writing == true {
+                    self?.writer.storeFrame(viewImage)
+                } else {
+                    self?.writer.writeFrame(viewImage)
+                }
             }
         }
     }

@@ -138,6 +138,8 @@ public final class FlipBookAssetWriter: NSObject {
     /// The images that compose the frames of the final video
     internal var frames = [Image?]()
     
+    internal var storedFrames = [Image?]()
+    
     /// The queue on which video asset writing is done
     internal let queue = DispatchQueue(label: "com.FlipBook.asset.writer.queue")
     
@@ -171,9 +173,23 @@ public final class FlipBookAssetWriter: NSObject {
         frames.append(image)
     }
     
+    public func storeFrame(_ image: Image) {
+        storedFrames.append(image)
+    }
+    
     /// Clears frame buffer
     public func clearFrames() {
         frames.removeAll()
+    }
+    
+    public func clearStoredFrames() {
+        storedFrames.removeAll()
+    }
+    
+    public func transferStoredFrames() {
+        frames.removeAll()
+        frames.append(contentsOf: storedFrames)
+        storedFrames.removeAll()
     }
     
     #if os(iOS)
