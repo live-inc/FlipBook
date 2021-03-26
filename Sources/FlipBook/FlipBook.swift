@@ -265,13 +265,11 @@ public final class FlipBook: NSObject {
             writer.clearFrames()
             self.writer.startDate = nil
             self.writer.endDate = nil
-            self.onProgress?(0.0)
             self.onProgress = nil
             self.onCompletion?(.failure(FlipBookError.recordingNotAvailible))
             self.onCompletion = nil
         } else {
             writer.clearStoredFrames()
-            self.onProgress2?(0.0)
             self.onProgress2 = nil
             self.onCompletion2?(.failure(FlipBookError.recordingNotAvailible))
             self.onCompletion2 = nil
