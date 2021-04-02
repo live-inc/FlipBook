@@ -13,7 +13,7 @@ extension Image {
     }
     
     var jpegRep: Data? {
-        jpegData(compressionQuality: FlipBook.compression)
+        jpegData(compressionQuality: FlipBook.quality)
     }
     
     static func makeImage(cgImage: CGImage) -> Image {

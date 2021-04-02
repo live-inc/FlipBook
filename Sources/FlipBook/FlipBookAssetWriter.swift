@@ -365,7 +365,7 @@ public final class FlipBookAssetWriter: NSObject {
                                         }
                                         
                                         // Make the gif
-                                        gWriter.makeGIF(images.compactMap { UIImage(cgImage: $0).jpegData(compressionQuality: FlipBook.compression) },
+                                        gWriter.makeGIF(images.compactMap { UIImage(cgImage: $0).jpegData(compressionQuality: FlipBook.quality) },
                                                         delay: CGFloat(1.0) / CGFloat(self.preferredFramesPerSecond),
                                                         sizeRatio: self.gifImageScale,
                                                         progress: { prog in progress?(0.75 + prog * 0.25) },

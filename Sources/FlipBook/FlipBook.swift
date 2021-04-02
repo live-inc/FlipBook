@@ -12,7 +12,8 @@ import UIKit
 /// Class that records a view
 public final class FlipBook: NSObject {
     
-    public static let compression: CGFloat = 0.7
+    // Between 0.0 (worst quality, less memory usage) and 1.0 (best quality, more memory usage)
+    public static let quality: CGFloat = 0.7
     
     // MARK: - Types -
     
