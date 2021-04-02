@@ -10,12 +10,7 @@ import CoreGraphics
 import VideoToolbox
 import Photos
 import CoreImage
-#if os(OSX)
-import AppKit
-#else
 import UIKit
-import ReplayKit
-#endif
 
 // MARK: - FlipBookAssetWriter -
 
@@ -104,15 +99,9 @@ public final class FlipBookAssetWriter: NSObject {
     /// The size of the recording area.
     /// **Default** is the size of the `keyWindow` of the application
     public var size: CGSize = {
-        #if os(OSX)
-        let size = NSScreen.main?.frame.size ?? CGSize(width: 400.0, height: 300.0)
-        let scale = NSScreen.main?.backingScaleFactor ?? 1.0
-        return CGSize(width: size.width * scale, height: size.height * scale)
-        #else
         let size = UIScreen.main.bounds.size
         let scale = UIScreen.main.scale
         return CGSize(width: size.width * scale, height: size.height * scale)
-        #endif
     }()
     
     /// The frame rate of a recording without a `startDate` and `endDate`.
@@ -136,9 +125,9 @@ public final class FlipBookAssetWriter: NSObject {
     // MARK: - Internal Properties -
     
     /// The images that compose the frames of the final video
-    internal var frames = [Image?]()
+    internal var frames = [Data?]()
     
-    internal var storedFrames = [Image?]()
+    internal var storedFrames = [Data?]()
     
     /// The queue on which video asset writing is done
     internal let queue = DispatchQueue(label: "com.FlipBook.asset.writer.queue")
@@ -160,20 +149,16 @@ public final class FlipBookAssetWriter: NSObject {
     
     /// The core image context
     internal lazy var ciContext = CIContext()
-    
-    #if os(iOS)
-    internal lazy var rpScreenWriter = RPScreenWriter()
-    #endif
-    
+        
     // MARK: - Public Methods -
     
     /// Appends image to collection images to be written to video
     /// - Parameter image: image to be written to video
-    public func writeFrame(_ image: Image) {
+    public func writeFrame(_ image: Data) {
         frames.append(image)
     }
     
-    public func storeFrame(_ image: Image) {
+    public func storeFrame(_ image: Data) {
         storedFrames.append(image)
     }
     
@@ -191,145 +176,7 @@ public final class FlipBookAssetWriter: NSObject {
         frames.append(contentsOf: storedFrames)
         storedFrames.removeAll()
     }
-    
-    #if os(iOS)
-    /// Appends a sample buffer to the specified input
-    /// - Parameters:
-    ///   - sampleBuffer: The sample buffer to be appended
-    ///   - type: The type of the sample buffer to be appended
-    public func append(_ sampleBuffer: CMSampleBuffer, type: RPSampleBufferType) {
-        rpScreenWriter.writeBuffer(sampleBuffer, rpSampleType: type)
-    }
-    
-    /// Ends live capture driven by `ReplayKit`
-    /// - Parameters:
-    ///   - assetType: determines what type of asset is created. **Default** is video.
-    ///   - compositionAnimation: optional closure for adding `AVVideoCompositionCoreAnimationTool` composition animations. Add `CALayer`s as sublayers to the passed in `CALayer`. Then trigger animations with a `beginTime` of `AVCoreAnimationBeginTimeAtZero`. *Reminder that `CALayer` origin for `AVVideoCompositionCoreAnimationTool` is lower left  for `UIKit` setting `isGeometryFlipped = true is suggested* **Default is `nil`**
-    ///   - progress: closure that is called with a `CGFloat` representing the progress of video generation. `CGFloat` is in the range `(0.0 ... 1.0)`. `progress` will be called from a background thread
-    ///   - completion: closure that is called when the video has been created with the `URL` for the created video. `completion` will be called from a background thread
-    public func endLiveCapture(assetType: AssetType = .video,
-                               compositionAnimation: ((CALayer) -> Void)? = nil,
-                               progress: ((CGFloat) -> Void)?,
-                               completion: @escaping (Result<Asset, Error>) -> Void) {
-        endLiveCaptureAndWrite { [weak self] (result) in
-            guard let self = self else {
-                completion(.failure(FlipBookAssetWriterError.unknownError))
-                return
-            }
             
-            let firstFrame: UIImage? = self.frames.first ?? nil
-
-            switch result {
-            case .success(let url):
-                if let animation = compositionAnimation {
-                    self.coreAnimationVideoEditor.preferredFramesPerSecond = self.preferredFramesPerSecond
-                    self.coreAnimationVideoEditor.makeVideo(fromVideoAt: url, animation: animation, progress: {prog in progress?(prog * 0.75) }) { [weak self] (result) in
-                        guard let self = self else {
-                            completion(.failure(FlipBookAssetWriterError.unknownError))
-                            return
-                        }
-                        switch result {
-                        case .success(let url):
-                            switch assetType {
-                            case .video:
-                                completion(.success(.video(url, firstFrame)))
-                            case .livePhoto(let img):
-                                // Make image URL for still aspect of Live Photo
-                                let imageURL: URL?
-                                if let image = img, let jpgData = image.jpegRep, let url = self.makeFileOutputURL(fileName: "img.jpg") {
-                                    try? jpgData.write(to: url, options: [.atomic])
-                                    imageURL = url
-                                } else {
-                                    imageURL = try? self.livePhotoWriter.makeKeyPhoto(from: url, percent: 0.0)
-                                }
-                                self.livePhotoWriter.make(from: imageURL, videoURL: url, progress: { prog in progress?(prog) }, completion: { result in
-                                    switch result {
-                                    case let .success(livePhoto, resources):
-                                        completion(.success(.livePhoto(livePhoto, resources)))
-                                    case .failure(let error):
-                                        completion(.failure(error))
-                                    }
-                                })
-                            case .gif:
-                                self.makeFrames(from: url, progress: { (prog) in
-                                    progress?(0.75 + prog * 0.125)
-                                }, completion: { [weak self] images in
-                                    guard let self = self, let gWriter = self.gifWriter, self.preferredFramesPerSecond > 0 else {
-                                        completion(.failure(FlipBookAssetWriterError.unknownError))
-                                        return
-                                    }
-                                    // Make the gif
-                                    gWriter.makeGIF(images.map(Image.makeImage),
-                                                    delay: CGFloat(1.0) / CGFloat(self.preferredFramesPerSecond),
-                                                    sizeRatio: self.gifImageScale,
-                                                    progress: { prog in progress?(0.875 + prog * 0.125) },
-                                                    completion: { result in
-                                                        switch result {
-                                                        case .success(let url):
-                                                            completion(.success(.gif(url)))
-                                                        case .failure(let error):
-                                                            completion(.failure(error))
-                                                        }
-                                    })
-                                })
-                            }
-                        case .failure(let error):
-                            completion(.failure(error))
-                        }
-                    }
-                } else {
-                    switch assetType {
-                    case .video:
-                        completion(.success(.video(url, firstFrame)))
-                    case .livePhoto(let img):
-                        let imageURL: URL?
-                        // Make image URL for still aspect of Live Photo
-                        if let image = img, let jpgData = image.jpegRep, let url = self.makeFileOutputURL(fileName: "img.jpg") {
-                            try? jpgData.write(to: url, options: [.atomic])
-                            imageURL = url
-                        } else {
-                            imageURL = try? self.livePhotoWriter.makeKeyPhoto(from: url, percent: 0.0)
-                        }
-                        self.livePhotoWriter.make(from: imageURL, videoURL: url, progress: { prog in progress?(prog) }, completion: { result in
-                            switch result {
-                            case let .success(livePhoto, resources):
-                                completion(.success(.livePhoto(livePhoto, resources)))
-                            case .failure(let error):
-                                completion(.failure(error))
-                            }
-                        })
-                    case .gif:
-                        self.makeFrames(from: url, progress: { (prog) in
-                            progress?(prog * 0.5)
-                        }, completion: { [weak self] images in
-                            guard let self = self, let gWriter = self.gifWriter, self.preferredFramesPerSecond > 0 else {
-                                completion(.failure(FlipBookAssetWriterError.unknownError))
-                                return
-                            }
-                            // Make the gif
-                            gWriter.makeGIF(images.map(Image.makeImage),
-                                            delay: CGFloat(1.0) / CGFloat(self.preferredFramesPerSecond),
-                                            sizeRatio: self.gifImageScale,
-                                            progress: { prog in progress?(0.5 + prog * 0.5) },
-                                            completion: { result in
-                                                switch result {
-                                                case .success(let url):
-                                                    completion(.success(.gif(url)))
-                                                case .failure(let error):
-                                                    completion(.failure(error))
-                                                }
-                            })
-                        })
-                    }
-                }
-            case .failure(let error):
-                completion(.failure(error))
-            }
-            
-        }
-    }
-    #endif
-    
     /// Makes asset from array of `Image`s and writes to disk at `fileOutputURL`
     /// - Parameters:
     ///   - images: images that comprise the video
@@ -337,7 +184,7 @@ public final class FlipBookAssetWriter: NSObject {
     ///   - compositionAnimation: optional closure for adding `AVVideoCompositionCoreAnimationTool` composition animations. Add `CALayer`s as sublayers to the passed in `CALayer`. Then trigger animations with a `beginTime` of `AVCoreAnimationBeginTimeAtZero`. *Reminder that `CALayer` origin for `AVVideoCompositionCoreAnimationTool` is lower left  for `UIKit` setting `isGeometryFlipped = true is suggested* **Default is `nil`**
     ///   - progress: closure that is called with a `CGFloat` representing the progress of video generation. `CGFloat` is in the range `(0.0 ... 1.0)`. `progress` will be called from a background thread
     ///   - completion: closure that is called when the video has been created with the `URL` for the created video. `completion` will be called from a background thread
-    public func createAsset(from images: [Image],
+    public func createAsset(from images: [Data],
                             assetType: AssetType = .video,
                             compositionAnimation: ((CALayer) -> Void)? = nil,
                             progress: ((CGFloat) -> Void)?,
@@ -362,7 +209,7 @@ public final class FlipBookAssetWriter: NSObject {
             return
         }
         
-        let firstFrame: UIImage? = self.frames.first ?? nil
+        let firstFrame: UIImage? = nil//self.frames.first ?? nil
         
         switch assetType {
 
@@ -403,7 +250,7 @@ public final class FlipBookAssetWriter: NSObject {
 
         // Handle Live Photo
         case .livePhoto(let img):
-            let image: Image? = img ?? frames[0]
+            let image: Image? = img //?? frames[0]
             let imageURL: URL?
         
             // Make image URL for still aspect of Live Photo
@@ -518,7 +365,7 @@ public final class FlipBookAssetWriter: NSObject {
                                         }
                                         
                                         // Make the gif
-                                        gWriter.makeGIF(images.map(Image.makeImage),
+                                        gWriter.makeGIF(images.compactMap { UIImage(cgImage: $0).jpegData(compressionQuality: FlipBook.compresion) },
                                                         delay: CGFloat(1.0) / CGFloat(self.preferredFramesPerSecond),
                                                         sizeRatio: self.gifImageScale,
                                                         progress: { prog in progress?(0.75 + prog * 0.25) },
@@ -690,7 +537,7 @@ public final class FlipBookAssetWriter: NSObject {
                         while self.videoInput?.isReadyForMoreMediaData == false {
                         }
                         let time = CMTime(value: CMTimeValue(i), timescale: CMTimeScale(frameRate))
-                        if let buffer = self.frames[index]?.cgI?.makePixelBuffer() {
+                        if let data = self.frames[index], let buffer = UIImage(data: data)?.cgI?.makePixelBuffer() {
                             guard self.adapter?.append(buffer, withPresentationTime: time) == true else {
                                 let error = writer.error ?? FlipBookAssetWriterError.couldNotWriteAsset
                                 completion(.failure(error))
@@ -713,21 +560,7 @@ public final class FlipBookAssetWriter: NSObject {
             completion(.failure(error))
         }
     }
-    
-    /// Ends the realtime writing of sample buffers and writes to `fileOutputPath`
-    /// - Parameter completion: Closure called when writing is finished
-    internal func endLiveCaptureAndWrite(completion: @escaping (Result<URL, Error>) -> Void) {
-        rpScreenWriter.finishWriting { (url, error) in
-            if let url = url {
-                completion(.success(url))
-            } else if let error = error{
-                completion(.failure(error))
-            } else {
-                completion(.failure(FlipBookAssetWriterError.unknownError))
-            }
-        }
-    }
-    
+        
     /// Helper function that calculates the frame rate if `startDate` and `endDate` are set. Otherwise it returns `preferredFramesPerSecond`
     internal func makeFrameRate() -> Int {
         let startTimeDiff = startDate?.timeIntervalSinceNow ?? 0

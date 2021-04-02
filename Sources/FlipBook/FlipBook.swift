@@ -5,17 +5,14 @@
 //  Created by Brad Gayman on 1/24/20.
 //
 
-#if os(OSX)
-import AppKit
-#else
 import UIKit
-import ReplayKit
-#endif
 
 // MARK: - FlipBook -
 
 /// Class that records a view
 public final class FlipBook: NSObject {
+    
+    public static let compresion: CGFloat = 0.7
     
     // MARK: - Types -
     
@@ -49,20 +46,6 @@ public final class FlipBook: NSObject {
     /// **Default** `.video`
     public var assetType: FlipBookAssetWriter.AssetType = .video
     
-    /// Boolean that when set to `true` will cause the entire screen to be captured using `ReplayKit` on iOS 11.0+ only and will otherwise be ignored
-    public var shouldUseReplayKit: Bool = false
-    
-    #if os(iOS)
-    
-    /// The replay kit screen recorder used when `shouldUseReplayKit` is set to `true`
-    public lazy var screenRecorder: RPScreenRecorder = {
-        let recorder = RPScreenRecorder.shared()
-        recorder.isCameraEnabled = false
-        recorder.isMicrophoneEnabled = false
-        return recorder
-    }()
-    #endif
-    
     // MARK: - Internal Properties -
 
     /// Asset writer used to convert screenshots into video
@@ -87,18 +70,8 @@ public final class FlipBook: NSObject {
     /// View that is currently being recorded
     internal var sourceView: View?
     
-    #if os(OSX)
-    
-    /// Queue for capturing snapshots for view
-    internal var queue: DispatchQueue?
-    
-    /// Source for capturing snapshots for view
-    internal var source: DispatchSourceTimer?
-    #else
-
     /// Display link that drives view snapshotting
     internal var displayLink: CADisplayLink?
-    #endif
     
     // MARK: - Public Methods -
     
@@ -113,150 +86,42 @@ public final class FlipBook: NSObject {
                                mergeURL: (MergeType, URL)? = nil,
                                progress: ((CGFloat) -> Void)? = nil,
                                completion: @escaping (Result<FlipBookAssetWriter.Asset, Error>) -> Void) {
-        if shouldUseReplayKit {
-            #if os(macOS)
-            shouldUseReplayKit = false
-            startRecording(view, compositionAnimation: compositionAnimation, progress: progress, completion: completion)
-            #else
-            guard assetType != .gif else {
-                completion(.failure(FlipBookError.recordingNotAvailible))
-                return
-            }
+        guard displayLink == nil else {
+            completion(.failure(FlipBookError.recordingInProgress))
+            return
+        }
+        sourceView = view
+        if !writing {
             onProgress = progress
             onCompletion = completion
-            writer.gifImageScale = gifImageScale
-            writer.preferredFramesPerSecond = preferredFramesPerSecond
-            self.compositionAnimation = compositionAnimation
-            self.mergeURL = mergeURL
-            if #available(iOS 11.0, *) {
-                screenRecorder.startCapture(handler: { [weak self] (buffer, type, error) in
-                    if let error = error {
-                        print(error)
-                    }
-                    self?.writer.append(buffer, type: type)
-                }, completionHandler: { error in
-                    guard let error = error else {
-                        return
-                    }
-                    print(error)
-                })
-            } else {
-                shouldUseReplayKit = false
-                startRecording(view, compositionAnimation: compositionAnimation, progress: progress, completion: completion)
-            }
-            #endif
         } else {
-            #if os(OSX)
-            guard queue == nil else {
-                completion(.failure(FlipBookError.recordingInProgress))
-                return
-            }
-            #else
-            guard displayLink == nil else {
-                completion(.failure(FlipBookError.recordingInProgress))
-                return
-            }
-            #endif
-            sourceView = view
-            if !writing {
-                onProgress = progress
-                onCompletion = completion
-            } else {
-                onProgress2 = progress
-                onCompletion2 = completion
-            }
-            
-            self.compositionAnimation = compositionAnimation
-            self.mergeURL = mergeURL
-            writer.size = CGSize(width: view.bounds.size.width * view.scale, height: view.bounds.size.height * view.scale)
-            writer.startDate = Date()
-            writer.gifImageScale = gifImageScale
-            writer.preferredFramesPerSecond = preferredFramesPerSecond
-            
-            #if os(OSX)
-            queue = DispatchQueue.global()
-            source = DispatchSource.makeTimerSource(queue: queue)
-            source?.schedule(deadline: .now(), repeating: 1.0 / Double(self.preferredFramesPerSecond))
-            source?.setEventHandler { [weak self] in
-                guard let self = self else {
-                    return
-                }
-                DispatchQueue.main.async {
-                    self.tick()
-                }
-            }
-            source?.resume()
-            #else
-            displayLink = CADisplayLink(target: self, selector: #selector(tick(_:)))
-            if #available(iOS 10.0, *) {
-                displayLink?.preferredFramesPerSecond = preferredFramesPerSecond
-            }
-            displayLink?.add(to: RunLoop.main, forMode: .common)
-            #endif
+            onProgress2 = progress
+            onCompletion2 = completion
         }
+        
+        self.compositionAnimation = compositionAnimation
+        self.mergeURL = mergeURL
+        writer.size = CGSize(width: view.bounds.size.width * view.scale, height: view.bounds.size.height * view.scale)
+        writer.startDate = Date()
+        writer.gifImageScale = gifImageScale
+        writer.preferredFramesPerSecond = preferredFramesPerSecond
+        
+        displayLink = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        if #available(iOS 10.0, *) {
+            displayLink?.preferredFramesPerSecond = preferredFramesPerSecond
+        }
+        displayLink?.add(to: RunLoop.main, forMode: .common)
     }
     
     /// Stops recording of view and begins writing frames to video
     public func stop() {
-        if shouldUseReplayKit {
-            #if os(macOS)
-            shouldUseReplayKit = false
-            stop()
-            #else
-            if #available(iOS 11.0, *) {
-                screenRecorder.stopCapture { [weak self] (error) in
-                    guard let self = self else {
-                        return
-                    }
-                    if let error = error {
-                        self.onProgress = nil
-                        self.compositionAnimation = nil
-                        self.onCompletion?(.failure(error))
-                        self.onCompletion = nil
-                    } else {
-                        let composition: ((CALayer) ->  Void)?
-                        if self.compositionAnimation != nil  {
-                            composition = { [weak self] layer in  self?.compositionAnimation?(layer) }
-                        } else {
-                            composition = nil
-                        }
-                        self.writer.endLiveCapture(assetType: self.assetType,
-                                                   compositionAnimation: composition,
-                                                   progress: { [weak self] prog in DispatchQueue.main.async { self?.onProgress?(prog) }
-                            }, completion: { [weak self] result in
-                                guard let self = self else {
-                                    return
-                                }
-                                DispatchQueue.main.async {
-                                    self.writer.startDate = nil
-                                    self.writer.endDate = nil
-                                    self.onProgress = nil
-                                    self.compositionAnimation = nil
-                                    self.onCompletion?(result)
-                                    self.onCompletion = nil
-                                }
-                        })
-                    }
-                }
-            } else {
-                shouldUseReplayKit = false
-                stop()
-            }
-            #endif
-        } else {
-            #if os(OSX)
-            source?.cancel()
-            queue = nil
-            #else
-            guard let displayLink = self.displayLink else {
-                return
-            }
-            displayLink.invalidate()
-            self.displayLink = nil
-            writer.endDate = Date()
-            sourceView = nil
-            #endif
+        guard let displayLink = self.displayLink else {
+            return
         }
+        displayLink.invalidate()
+        self.displayLink = nil
+        writer.endDate = Date()
+        sourceView = nil
     }
     
     public func clear() {
@@ -310,30 +175,7 @@ public final class FlipBook: NSObject {
             }
         })
     }
-    
-    /// Makes an asset of type `assetType` from a an array of images with a framerate equal to `preferredFramesPerSecond`. The asset will have a size equal to the first image's size.
-    /// - Parameters:
-    ///   - images: The array of images
-    ///   - compositionAnimation: optional closure for adding `AVVideoCompositionCoreAnimationTool` composition animations. Add `CALayer`s as sublayers to the passed in `CALayer`. Then trigger animations with a `beginTime` of `AVCoreAnimationBeginTimeAtZero`. *Reminder that `CALayer` origin for `AVVideoCompositionCoreAnimationTool` is lower left  for `UIKit` setting `isGeometryFlipped = true is suggested* **Default is `nil`**
-    ///   - progress: Closure called when progress is made. Called on the main thread. **Default is `nil`**
-    ///   - completion: Closure called when the asset has finished being created. Called on the main thread.
-    public func makeAsset(from images: [Image],
-                          compositionAnimation: ((CALayer) -> Void)? = nil,
-                          progress: ((CGFloat) -> Void)? = nil,
-                          completion: @escaping (Result<FlipBookAssetWriter.Asset, Error>) -> Void) {
-        writer.frames = images
-        writer.preferredFramesPerSecond = preferredFramesPerSecond
-        let firstCGImage = images.first?.cgI
-        writer.size = CGSize(width: firstCGImage?.width ?? 0, height: firstCGImage?.height ?? 0)
-        writer.createVideoFromCapturedFrames(assetType: assetType,
-                                             compositionAnimation: compositionAnimation,
-                                             progress: { (prog) in
-                                                DispatchQueue.main.async { progress?(prog) }
-        }, completion: { result in
-            DispatchQueue.main.async { completion(result) }
-        })
-    }
-    
+        
     /// Saves a `LivePhotoResources` to photo library as a Live Photo. **You must request permission to modify photo library before attempting to save as well as add "Privacy - Photo Library Usage Description" key to your app's info.plist**
     /// - Parameters:
     ///   - resources: The resources of the Live Photo to be saved
@@ -357,17 +199,6 @@ public final class FlipBook: NSObject {
     }
     
     // MARK: - Internal Methods -
-    
-    #if os(OSX)
-    internal func tick() {
-        guard let viewImage = sourceView?.fb_makeViewSnapshot() else {
-            return
-        }
-        writer.writeFrame(viewImage)
-    }
-    
-    #else
-
     @objc internal func tick(_ displayLink: CADisplayLink) {
         if let frame = self.sourceView?.frame {
             DispatchQueue.global(qos: .background).sync { [weak self] in
@@ -382,5 +213,4 @@ public final class FlipBook: NSObject {
             }
         }
     }
-    #endif
 }

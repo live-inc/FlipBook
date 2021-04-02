@@ -7,11 +7,8 @@
 
 import AVFoundation
 import ImageIO
-#if !os(macOS)
-import MobileCoreServices
-#else
 import CoreServices
-#endif
+import UIKit
 
 // MARK: - FlipBookGIFWriter -
 
@@ -61,8 +58,8 @@ public final class FlipBookGIFWriter: NSObject {
     ///   - sizeRatio: scale that image should be resized to when making gif **Default** 1.0
     ///   - progress: closure called when progress is made while creating gif. Called from background thread.
     ///   - completion: closure called after gif has been composed. Called from background thread.
-    public func makeGIF(_ images: [Image], delay: CGFloat = 0.02, loop: Int = 0, sizeRatio: Float = 1.0, progress: ((CGFloat) -> Void)?, completion: @escaping (Result<URL, Error>) -> Void) {
-        var images: [Image?] = images
+    public func makeGIF(_ images: [Data], delay: CGFloat = 0.02, loop: Int = 0, sizeRatio: Float = 1.0, progress: ((CGFloat) -> Void)?, completion: @escaping (Result<URL, Error>) -> Void) {
+        var images: [Data?] = images
         let count = images.count
         Self.queue.async { [weak self] in
             autoreleasepool {
@@ -82,8 +79,7 @@ public final class FlipBookGIFWriter: NSObject {
                 CGImageDestinationSetProperties(destination, gifSettings as CFDictionary)
                 for index in images.indices {
                     autoreleasepool {
-                        let image = images[index]
-                        if let cgImage = image?.cgI?.resize(with: sizeRatio) {
+                        if let image = images[index], let cgImage = UIImage(data: image)?.cgI?.resize(with: sizeRatio) {
                             CGImageDestinationAddImage(destination, cgImage, imageSettings as CFDictionary)
                         }
                         images[index] = nil
