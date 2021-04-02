@@ -18,7 +18,7 @@ extension View {
         UIGraphicsBeginImageContextWithOptions(frame.size, true, 0)
         self.drawHierarchy(in: frame, afterScreenUpdates: false)
         guard let rasterizedView = UIGraphicsGetImageFromCurrentImageContext() else { return nil }
-        let imageData = rasterizedView.jpegData(compressionQuality: FlipBook.compresion)
+        let imageData = rasterizedView.jpegData(compressionQuality: FlipBook.compression)
         UIGraphicsEndImageContext()
         
         return imageData

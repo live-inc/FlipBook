@@ -12,7 +12,7 @@ import UIKit
 /// Class that records a view
 public final class FlipBook: NSObject {
     
-    public static let compresion: CGFloat = 0.7
+    public static let compression: CGFloat = 0.7
     
     // MARK: - Types -
     
