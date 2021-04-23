@@ -13,7 +13,7 @@ import UIKit
 public final class FlipBook: NSObject {
     
     // Between 0.0 (worst quality, less memory usage) and 1.0 (best quality, more memory usage)
-    public static let quality: CGFloat = 0.4
+    public static let quality: CGFloat = 0.7
     
     // MARK: - Types -
     
